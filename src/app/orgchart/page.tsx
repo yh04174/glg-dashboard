@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useMemo, useState } from "react";
+import { MouseEvent, Suspense, useMemo, useRef, useState } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { useStore } from "@/lib/store";
 import { OrgUnit, Employee, OrgUnitType } from "@/lib/types";
@@ -36,27 +36,117 @@ function OrgChartInner() {
 
   const childrenOf = (id: string) => units.filter((u) => u.parentId === id);
 
+  // 팬(드래그 스크롤)
+  const panRef = useRef<HTMLDivElement | null>(null);
+  const dragState = useRef({ dragging: false, moved: false, startX: 0, startY: 0, scrollLeft: 0, scrollTop: 0 });
+  const [isDragging, setIsDragging] = useState(false);
+
+  const onPanMouseDown = (ev: MouseEvent) => {
+    const el = panRef.current;
+    if (!el) return;
+    dragState.current = {
+      dragging: true,
+      moved: false,
+      startX: ev.clientX,
+      startY: ev.clientY,
+      scrollLeft: el.scrollLeft,
+      scrollTop: el.scrollTop,
+    };
+    setIsDragging(true);
+  };
+
+  const onPanMouseMove = (ev: MouseEvent) => {
+    const el = panRef.current;
+    const ds = dragState.current;
+    if (!ds.dragging || !el) return;
+    const dx = ev.clientX - ds.startX;
+    const dy = ev.clientY - ds.startY;
+    if (Math.abs(dx) > 3 || Math.abs(dy) > 3) ds.moved = true;
+    el.scrollLeft = ds.scrollLeft - dx;
+    el.scrollTop = ds.scrollTop - dy;
+  };
+
+  const endPan = () => {
+    dragState.current.dragging = false;
+    setIsDragging(false);
+  };
+
+  // 인접한 실/본부로 조직 이동
+  const moveUnit = (unit: OrgUnit, direction: "prev" | "next") => {
+    if (!unit.parentId) return;
+    const parent = units.find((u) => u.id === unit.parentId);
+    if (!parent) return;
+    const uncles = units.filter((u) => u.parentId === parent.parentId);
+    const idx = uncles.findIndex((u) => u.id === parent.id);
+    const targetParent = direction === "prev" ? uncles[idx - 1] : uncles[idx + 1];
+    if (!targetParent) return;
+    updateOrgUnit({ ...unit, parentId: targetParent.id });
+  };
+
+  const canMove = (unit: OrgUnit, direction: "prev" | "next") => {
+    if (!unit.parentId) return false;
+    const parent = units.find((u) => u.id === unit.parentId);
+    if (!parent) return false;
+    const uncles = units.filter((u) => u.parentId === parent.parentId);
+    const idx = uncles.findIndex((u) => u.id === parent.id);
+    return direction === "prev" ? idx > 0 : idx < uncles.length - 1;
+  };
+
   const renderNode = (unit: OrgUnit) => {
     const kids = childrenOf(unit.id);
     const isSelected = selectedUnitId === unit.id;
     return (
-      <div key={unit.id} className="flex flex-col items-center">
-        <button
-          onClick={() => setSelectedUnitId(isSelected ? null : unit.id)}
-          className={`min-w-[140px] rounded-md px-4 py-2 text-sm text-white text-center shadow-sm transition-transform hover:scale-[1.03] ${
-            isSelected ? "ring-2 ring-offset-2 ring-[#1E4E8C]" : ""
-          }`}
-          style={{ backgroundColor: entity?.color ?? "#1E4E8C" }}
-        >
-          <div className="font-medium">{unit.name || "(이름 없음)"}</div>
-          {unit.headName && <div className="text-[11px] text-white/70">{unit.headName}</div>}
-        </button>
+      <li key={unit.id}>
+        <div className="group relative inline-block">
+          {unit.parentId && (
+            <div className="absolute -top-3 left-1/2 -translate-x-1/2 -translate-y-full hidden group-hover:flex gap-1 z-10">
+              <button
+                title="왼쪽 실/본부로 이동"
+                disabled={!canMove(unit, "prev")}
+                onClick={(ev) => {
+                  ev.stopPropagation();
+                  moveUnit(unit, "prev");
+                }}
+                className="w-6 h-6 rounded bg-white border border-black/10 shadow text-xs disabled:opacity-30 disabled:cursor-not-allowed hover:bg-black/5"
+              >
+                ◀
+              </button>
+              <button
+                title="오른쪽 실/본부로 이동"
+                disabled={!canMove(unit, "next")}
+                onClick={(ev) => {
+                  ev.stopPropagation();
+                  moveUnit(unit, "next");
+                }}
+                className="w-6 h-6 rounded bg-white border border-black/10 shadow text-xs disabled:opacity-30 disabled:cursor-not-allowed hover:bg-black/5"
+              >
+                ▶
+              </button>
+            </div>
+          )}
+          <button
+            onClick={() => {
+              if (dragState.current.moved) return;
+              setSelectedUnitId(isSelected ? null : unit.id);
+            }}
+            className={`min-w-[140px] rounded-md px-4 py-2 text-sm text-white text-center shadow-sm transition-transform hover:scale-[1.03] ${
+              isSelected ? "ring-2 ring-offset-2 ring-[#1E4E8C]" : ""
+            }`}
+            style={{ backgroundColor: entity?.color ?? "#1E4E8C" }}
+          >
+            <div className="font-medium">{unit.name || "(이름 없음)"}</div>
+            {unit.headName && <div className="text-[11px] text-white/70">{unit.headName}</div>}
+            {typeof unit.memberCount === "number" && (
+              <div className="text-[10px] text-white/60">{unit.memberCount}명</div>
+            )}
+          </button>
+        </div>
         {kids.length > 0 && (
-          <div className="flex gap-8 mt-6 border-t border-black/10 pt-6">
+          <ul>
             {kids.map((k) => renderNode(k))}
-          </div>
+          </ul>
         )}
-      </div>
+      </li>
     );
   };
 
@@ -103,13 +193,22 @@ function OrgChartInner() {
         </div>
       </div>
 
-      <div className="bg-white rounded-xl border border-black/5 shadow-sm p-8 overflow-x-auto">
+      <div
+        ref={panRef}
+        onMouseDown={onPanMouseDown}
+        onMouseMove={onPanMouseMove}
+        onMouseUp={endPan}
+        onMouseLeave={endPan}
+        className={`org-pan bg-white rounded-xl border border-black/5 shadow-sm p-8 overflow-auto max-h-[75vh] ${
+          isDragging ? "dragging" : ""
+        }`}
+      >
         {roots.length === 0 ? (
           <div className="text-center text-[#0B1F3A]/40 py-10">
             아직 등록된 조직이 없습니다. &quot;최상위 조직 추가&quot;로 시작하세요.
           </div>
         ) : (
-          <div className="flex gap-10 justify-center">{roots.map((r) => renderNode(r))}</div>
+          <ul className="org-tree">{roots.map((r) => renderNode(r))}</ul>
         )}
       </div>
 

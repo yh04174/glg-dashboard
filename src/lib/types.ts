@@ -23,6 +23,7 @@ export interface OrgUnit {
   type: OrgUnitType;
   parentId: string | null;
   headName?: string; // 조직장 이름
+  memberCount?: number; // 표기용 인원수 (예: 팀 인원 5명)
 }
 
 export interface Employee {
