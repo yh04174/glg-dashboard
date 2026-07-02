@@ -31,8 +31,13 @@ export interface Employee {
   orgUnitId: string;
   name: string;
   glg: number;         // 1~10, 표준 Grade
-  tenureYears: number;  // 연차 (레벨 표기용)
+  joinYear: number;     // 입사 연도 — 연차는 매년 1/1 기준 자동 계산됨
   color?: string;       // 개별 강조색 (선택)
+}
+
+// 입사 연도 기준으로 매년 1월 1일 자동 갱신되는 연차 계산
+export function computeTenureYears(joinYear: number, now: Date = new Date()): number {
+  return Math.max(0, now.getFullYear() - joinYear);
 }
 
 export const GLG_LEVELS: { glg: number; stream: Stream }[] = [

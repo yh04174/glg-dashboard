@@ -111,16 +111,18 @@ export const sampleOrgUnits: OrgUnit[] = [
   ...udas2OrgUnits,
 ];
 
+const CURRENT_YEAR = new Date().getFullYear();
+
 export const sampleEmployees: Employee[] = [
-  { id: "e1", orgUnitId: "kr-team-1", name: "김규태", glg: 7, tenureYears: 12 },
-  { id: "e2", orgUnitId: "kr-team-1", name: "김채정", glg: 4, tenureYears: 3 },
-  { id: "e3", orgUnitId: "kr-team-1", name: "박지연", glg: 4, tenureYears: 4 },
-  { id: "e4", orgUnitId: "kr-team-1", name: "이준수", glg: 3, tenureYears: 2 },
-  { id: "e5", orgUnitId: "kr-team-1", name: "김명조", glg: 4, tenureYears: 5 },
+  { id: "e1", orgUnitId: "kr-team-1", name: "김규태", glg: 7, joinYear: CURRENT_YEAR - 12 },
+  { id: "e2", orgUnitId: "kr-team-1", name: "김채정", glg: 4, joinYear: CURRENT_YEAR - 3 },
+  { id: "e3", orgUnitId: "kr-team-1", name: "박지연", glg: 4, joinYear: CURRENT_YEAR - 4 },
+  { id: "e4", orgUnitId: "kr-team-1", name: "이준수", glg: 3, joinYear: CURRENT_YEAR - 2 },
+  { id: "e5", orgUnitId: "kr-team-1", name: "김명조", glg: 4, joinYear: CURRENT_YEAR - 5 },
 
-  { id: "e6", orgUnitId: "us-team-1", name: "M. Lee", glg: 6, tenureYears: 8 },
-  { id: "e7", orgUnitId: "us-team-1", name: "A. Cole", glg: 3, tenureYears: 2 },
+  { id: "e6", orgUnitId: "us-team-1", name: "M. Lee", glg: 6, joinYear: CURRENT_YEAR - 8 },
+  { id: "e7", orgUnitId: "us-team-1", name: "A. Cole", glg: 3, joinYear: CURRENT_YEAR - 2 },
 
-  { id: "e8", orgUnitId: "cz-team-1", name: "K. Dvorak", glg: 6, tenureYears: 6 },
-  { id: "e9", orgUnitId: "cz-team-1", name: "L. Horak", glg: 3, tenureYears: 3 },
+  { id: "e8", orgUnitId: "cz-team-1", name: "K. Dvorak", glg: 6, joinYear: CURRENT_YEAR - 6 },
+  { id: "e9", orgUnitId: "cz-team-1", name: "L. Horak", glg: 3, joinYear: CURRENT_YEAR - 3 },
 ];

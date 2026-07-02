@@ -3,15 +3,25 @@
 import { MouseEvent, Suspense, useMemo, useRef, useState } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { useStore } from "@/lib/store";
-import { OrgUnit, Employee, OrgUnitType } from "@/lib/types";
+import { OrgUnit, Employee, OrgUnitType, computeTenureYears } from "@/lib/types";
 
 function emptyUnit(entityId: string, parentId: string | null): OrgUnit {
   return { id: `unit-${Date.now()}`, entityId, name: "", type: "team", parentId };
 }
 
 function emptyEmployee(orgUnitId: string): Employee {
-  return { id: `emp-${Date.now()}`, orgUnitId, name: "", glg: 3, tenureYears: 1 };
+  return { id: `emp-${Date.now()}`, orgUnitId, name: "", glg: 3, joinYear: new Date().getFullYear() };
 }
+
+// 계층 깊이별 박스 색상 (최상위일수록 진하게)
+const LEVEL_STYLES = [
+  { bg: "#0B1F3A", text: "#FFFFFF", sub: "rgba(255,255,255,0.7)", border: "transparent" },
+  { bg: "#1E4E8C", text: "#FFFFFF", sub: "rgba(255,255,255,0.7)", border: "transparent" },
+  { bg: "#3E7CB8", text: "#FFFFFF", sub: "rgba(255,255,255,0.75)", border: "transparent" },
+  { bg: "#FFFFFF", text: "#0B1F3A", sub: "rgba(11,31,58,0.5)", border: "#3E7CB8" },
+  { bg: "#EEF2F7", text: "#0B1F3A", sub: "rgba(11,31,58,0.45)", border: "#C7D0DC" },
+];
+const levelStyle = (depth: number) => LEVEL_STYLES[Math.min(depth, LEVEL_STYLES.length - 1)];
 
 function OrgChartInner() {
   const { entities, orgUnits, employees, titleMappings, addOrgUnit, updateOrgUnit, removeOrgUnit, addEmployee, updateEmployee, removeEmployee } = useStore();
@@ -40,6 +50,11 @@ function OrgChartInner() {
   const panRef = useRef<HTMLDivElement | null>(null);
   const dragState = useRef({ dragging: false, moved: false, startX: 0, startY: 0, scrollLeft: 0, scrollTop: 0 });
   const [isDragging, setIsDragging] = useState(false);
+
+  // 확대/축소 — 인원이 많아질 것을 대비해 기본값을 작게 시작
+  const [zoom, setZoom] = useState(0.6);
+  const zoomIn = () => setZoom((z) => Math.min(1.2, Math.round((z + 0.1) * 100) / 100));
+  const zoomOut = () => setZoom((z) => Math.max(0.3, Math.round((z - 0.1) * 100) / 100));
 
   const onPanMouseDown = (ev: MouseEvent) => {
     const el = panRef.current;
@@ -92,14 +107,17 @@ function OrgChartInner() {
     return direction === "prev" ? idx > 0 : idx < uncles.length - 1;
   };
 
-  const renderNode = (unit: OrgUnit) => {
+  const renderNode = (unit: OrgUnit, depth: number = 0) => {
     const kids = childrenOf(unit.id);
     const isSelected = selectedUnitId === unit.id;
+    const style = levelStyle(depth);
     return (
       <li key={unit.id}>
-        <div className="group relative inline-block">
+        {/* -mt-7/pt-7 는 li 상단 연결선 여백(28px)만큼 히트 영역을 위로 넓혀서,
+            버튼→화살표로 이동할 때 커서가 그룹을 벗어나 화살표에 닿지 못하는 사각지대를 없앤다. */}
+        <div className={`group relative inline-block ${unit.parentId ? "-mt-7 pt-7" : ""}`}>
           {unit.parentId && (
-            <div className="absolute -top-3 left-1/2 -translate-x-1/2 -translate-y-full hidden group-hover:flex gap-1 z-10">
+            <div className="absolute top-0 left-1/2 -translate-x-1/2 hidden group-hover:flex gap-1 z-20">
               <button
                 title="왼쪽 실/본부로 이동"
                 disabled={!canMove(unit, "prev")}
@@ -129,21 +147,22 @@ function OrgChartInner() {
               if (dragState.current.moved) return;
               setSelectedUnitId(isSelected ? null : unit.id);
             }}
-            className={`min-w-[140px] rounded-md px-4 py-2 text-sm text-white text-center shadow-sm transition-transform hover:scale-[1.03] ${
+            className={`min-w-[140px] rounded-md px-4 py-2 text-sm text-center shadow-sm transition-transform hover:scale-[1.03] border ${
               isSelected ? "ring-2 ring-offset-2 ring-[#1E4E8C]" : ""
             }`}
-            style={{ backgroundColor: entity?.color ?? "#1E4E8C" }}
+            style={{ backgroundColor: style.bg, color: style.text, borderColor: style.border }}
           >
             <div className="font-medium">{unit.name || "(이름 없음)"}</div>
-            {unit.headName && <div className="text-[11px] text-white/70">{unit.headName}</div>}
-            {typeof unit.memberCount === "number" && (
-              <div className="text-[10px] text-white/60">{unit.memberCount}명</div>
+            {unit.headName && (
+              <div className="text-[11px]" style={{ color: style.sub }}>
+                {unit.headName}
+              </div>
             )}
           </button>
         </div>
         {kids.length > 0 && (
           <ul>
-            {kids.map((k) => renderNode(k))}
+            {kids.map((k) => renderNode(k, depth + 1))}
           </ul>
         )}
       </li>
@@ -193,6 +212,24 @@ function OrgChartInner() {
         </div>
       </div>
 
+      <div className="flex items-center justify-end gap-1">
+        <button
+          onClick={zoomOut}
+          className="w-7 h-7 rounded border border-black/10 bg-white text-sm hover:bg-black/5"
+          title="축소"
+        >
+          −
+        </button>
+        <span className="text-xs text-[#0B1F3A]/50 w-10 text-center">{Math.round(zoom * 100)}%</span>
+        <button
+          onClick={zoomIn}
+          className="w-7 h-7 rounded border border-black/10 bg-white text-sm hover:bg-black/5"
+          title="확대"
+        >
+          +
+        </button>
+      </div>
+
       <div
         ref={panRef}
         onMouseDown={onPanMouseDown}
@@ -208,7 +245,9 @@ function OrgChartInner() {
             아직 등록된 조직이 없습니다. &quot;최상위 조직 추가&quot;로 시작하세요.
           </div>
         ) : (
-          <ul className="org-tree">{roots.map((r) => renderNode(r))}</ul>
+          <div style={{ zoom }}>
+            <ul className="org-tree">{roots.map((r) => renderNode(r))}</ul>
+          </div>
         )}
       </div>
 
@@ -261,7 +300,7 @@ function OrgChartInner() {
               >
                 <div className="font-medium text-sm">{emp.name || "(이름 없음)"}</div>
                 <div className="text-xs text-[#0B1F3A]/60 mt-1">{titleFor(emp.glg)}</div>
-                <div className="text-xs text-[#0B1F3A]/40">Lv. {emp.tenureYears}년차 · GLG{emp.glg}</div>
+                <div className="text-xs text-[#0B1F3A]/40">Lv. {computeTenureYears(emp.joinYear)}년차 · GLG{emp.glg}</div>
                 <div className="absolute top-2 right-2 hidden group-hover:flex gap-2 text-xs">
                   <button onClick={() => setEditingEmp(emp)} className="text-[#1E4E8C]">
                     수정
@@ -414,14 +453,18 @@ function EmployeeModal({
             </select>
           </div>
           <div className="flex-1">
-            <label className="text-xs text-[#0B1F3A]/60">연차</label>
+            <label className="text-xs text-[#0B1F3A]/60">입사연도</label>
             <input
               type="number"
-              min={0}
-              value={draft.tenureYears}
-              onChange={(ev) => setDraft({ ...draft, tenureYears: Number(ev.target.value) })}
+              min={1970}
+              max={new Date().getFullYear()}
+              value={draft.joinYear}
+              onChange={(ev) => setDraft({ ...draft, joinYear: Number(ev.target.value) })}
               className="w-full mt-1 border border-black/10 rounded-md px-3 py-2 text-sm"
             />
+            <div className="text-[11px] text-[#0B1F3A]/40 mt-1">
+              {computeTenureYears(draft.joinYear)}년차 (매년 1/1 자동 갱신)
+            </div>
           </div>
         </div>
         <div>
