@@ -1,7 +1,5 @@
 import type { Metadata } from "next";
 import "./globals.css";
-import { StoreProvider } from "@/lib/store";
-import Sidebar from "@/components/Sidebar";
 
 export const metadata: Metadata = {
   title: "GLG Console — Global Grade Matrix",
@@ -15,14 +13,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="ko" className="h-full antialiased">
-      <body className="min-h-full bg-[#F4F6FA] text-[#0B1F3A] font-sans">
-        <StoreProvider>
-          <div className="flex min-h-screen">
-            <Sidebar />
-            <main className="flex-1 min-w-0">{children}</main>
-          </div>
-        </StoreProvider>
-      </body>
+      <body className="min-h-full bg-[#F4F6FA] text-[#0B1F3A] font-sans">{children}</body>
     </html>
   );
 }

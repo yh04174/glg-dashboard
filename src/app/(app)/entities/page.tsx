@@ -15,7 +15,7 @@ function emptyEntity(): Entity {
 }
 
 export default function EntitiesPage() {
-  const { entities, addEntity, updateEntity, removeEntity } = useStore();
+  const { entities, addEntity, updateEntity, removeEntity, canEdit } = useStore();
   const [editing, setEditing] = useState<Entity | null>(null);
 
   const isNew = editing ? !entities.some((e) => e.id === editing.id) : false;
@@ -36,12 +36,18 @@ export default function EntitiesPage() {
             조직도/Grade 매핑에서 사용할 법인을 추가·수정합니다.
           </p>
         </div>
-        <button
-          onClick={() => setEditing(emptyEntity())}
-          className="bg-[#0B1F3A] text-white text-sm px-4 py-2 rounded-lg hover:bg-[#0B1F3A]/90"
-        >
-          + 법인 추가
-        </button>
+        {canEdit ? (
+          <button
+            onClick={() => setEditing(emptyEntity())}
+            className="bg-[#0B1F3A] text-white text-sm px-4 py-2 rounded-lg hover:bg-[#0B1F3A]/90"
+          >
+            + 법인 추가
+          </button>
+        ) : (
+          <span className="text-xs text-[#0B1F3A]/40 border border-black/10 rounded-lg px-3 py-2">
+            보기 전용 계정
+          </span>
+        )}
       </div>
 
       <div className="bg-white rounded-xl border border-black/5 shadow-sm overflow-hidden">
@@ -68,22 +74,28 @@ export default function EntitiesPage() {
                 <td className="px-5 py-3 text-[#0B1F3A]/60">{e.shortName}</td>
                 <td className="px-5 py-3">GLG{e.gradeCeiling}</td>
                 <td className="px-5 py-3 text-right space-x-3">
-                  <button
-                    onClick={() => setEditing(e)}
-                    className="text-[#1E4E8C] hover:underline"
-                  >
-                    수정
-                  </button>
-                  <button
-                    onClick={() => {
-                      if (confirm(`${e.name}을(를) 삭제할까요? 소속 조직도/인원 데이터도 함께 삭제됩니다.`)) {
-                        removeEntity(e.id);
-                      }
-                    }}
-                    className="text-red-500 hover:underline"
-                  >
-                    삭제
-                  </button>
+                  {canEdit ? (
+                    <>
+                      <button
+                        onClick={() => setEditing(e)}
+                        className="text-[#1E4E8C] hover:underline"
+                      >
+                        수정
+                      </button>
+                      <button
+                        onClick={() => {
+                          if (confirm(`${e.name}을(를) 삭제할까요? 소속 조직도/인원 데이터도 함께 삭제됩니다.`)) {
+                            removeEntity(e.id);
+                          }
+                        }}
+                        className="text-red-500 hover:underline"
+                      >
+                        삭제
+                      </button>
+                    </>
+                  ) : (
+                    <span className="text-[#0B1F3A]/30">-</span>
+                  )}
                 </td>
               </tr>
             ))}

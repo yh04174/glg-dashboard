@@ -42,6 +42,7 @@ function OrgChartInner() {
     saveCheckpoint,
     restoreCheckpoint,
     deleteCheckpoint,
+    canEdit,
   } = useStore();
   const params = useSearchParams();
   const router = useRouter();
@@ -135,7 +136,7 @@ function OrgChartInner() {
         {/* -mt-7/pt-7 는 li 상단 연결선 여백(28px)만큼 히트 영역을 위로 넓혀서,
             버튼→화살표로 이동할 때 커서가 그룹을 벗어나 화살표에 닿지 못하는 사각지대를 없앤다. */}
         <div className={`group relative inline-block ${unit.parentId ? "-mt-7 pt-7" : ""}`}>
-          {unit.parentId && (
+          {unit.parentId && canEdit && (
             <div className="absolute top-0 left-1/2 -translate-x-1/2 hidden group-hover:flex gap-1 z-20">
               <button
                 title="왼쪽 실/본부로 이동"
@@ -222,34 +223,44 @@ function OrgChartInner() {
               </option>
             ))}
           </select>
-          <button
-            onClick={() => setEditingUnit(emptyUnit(entityId, null))}
-            className="bg-[#0B1F3A] text-white text-sm px-4 py-2 rounded-lg hover:bg-[#0B1F3A]/90"
-          >
-            + 최상위 조직 추가
-          </button>
+          {canEdit ? (
+            <button
+              onClick={() => setEditingUnit(emptyUnit(entityId, null))}
+              className="bg-[#0B1F3A] text-white text-sm px-4 py-2 rounded-lg hover:bg-[#0B1F3A]/90"
+            >
+              + 최상위 조직 추가
+            </button>
+          ) : (
+            <span className="text-xs text-[#0B1F3A]/40 border border-black/10 rounded-lg px-3 py-2">
+              보기 전용 계정
+            </span>
+          )}
         </div>
       </div>
 
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-2">
-          <button
-            onClick={undo}
-            disabled={!canUndo}
-            title="바로 직전 변경을 취소합니다"
-            className="text-sm px-3 py-1.5 rounded-md border border-black/10 disabled:opacity-30 disabled:cursor-not-allowed hover:bg-black/5"
-          >
-            ↩ 실행 취소
-          </button>
-          <button
-            onClick={() => {
-              const label = window.prompt("저장할 버전 이름을 입력하세요", `${entity?.name ?? ""} ${new Date().toLocaleString("ko-KR")}`);
-              if (label !== null) saveCheckpoint(label);
-            }}
-            className="text-sm px-3 py-1.5 rounded-md border border-black/10 hover:bg-black/5"
-          >
-            💾 현재 상태 저장
-          </button>
+          {canEdit && (
+            <>
+              <button
+                onClick={undo}
+                disabled={!canUndo}
+                title="바로 직전 변경을 취소합니다"
+                className="text-sm px-3 py-1.5 rounded-md border border-black/10 disabled:opacity-30 disabled:cursor-not-allowed hover:bg-black/5"
+              >
+                ↩ 실행 취소
+              </button>
+              <button
+                onClick={() => {
+                  const label = window.prompt("저장할 버전 이름을 입력하세요", `${entity?.name ?? ""} ${new Date().toLocaleString("ko-KR")}`);
+                  if (label !== null) saveCheckpoint(label);
+                }}
+                className="text-sm px-3 py-1.5 rounded-md border border-black/10 hover:bg-black/5"
+              >
+                💾 현재 상태 저장
+              </button>
+            </>
+          )}
           <button
             onClick={() => setShowVersions((v) => !v)}
             className="text-sm px-3 py-1.5 rounded-md border border-black/10 hover:bg-black/5"
@@ -291,25 +302,27 @@ function OrgChartInner() {
                       {new Date(c.savedAt).toLocaleString("ko-KR")}
                     </div>
                   </div>
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => {
-                        if (confirm(`"${c.label}" 시점으로 되돌릴까요? 현재 상태는 실행 취소로 복구할 수 있습니다.`)) {
-                          restoreCheckpoint(c.id);
-                          setSelectedUnitId(null);
-                        }
-                      }}
-                      className="text-[#1E4E8C] px-2 py-1"
-                    >
-                      복원
-                    </button>
-                    <button
-                      onClick={() => deleteCheckpoint(c.id)}
-                      className="text-red-500 px-2 py-1"
-                    >
-                      삭제
-                    </button>
-                  </div>
+                  {canEdit && (
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => {
+                          if (confirm(`"${c.label}" 시점으로 되돌릴까요? 현재 상태는 실행 취소로 복구할 수 있습니다.`)) {
+                            restoreCheckpoint(c.id);
+                            setSelectedUnitId(null);
+                          }
+                        }}
+                        className="text-[#1E4E8C] px-2 py-1"
+                      >
+                        복원
+                      </button>
+                      <button
+                        onClick={() => deleteCheckpoint(c.id)}
+                        className="text-red-500 px-2 py-1"
+                      >
+                        삭제
+                      </button>
+                    </div>
+                  )}
                 </li>
               ))}
             </ul>
@@ -345,44 +358,46 @@ function OrgChartInner() {
               <div className="font-semibold text-lg">{selectedUnit.name} · 인원 {selectedEmployees.length}명</div>
               <div className="text-xs text-[#0B1F3A]/50 mt-0.5">{selectedUnit.headName}</div>
             </div>
-            <div className="flex gap-2">
-              <button
-                onClick={() => setEditingUnit(emptyUnit(entityId, selectedUnit.id))}
-                className="text-sm px-3 py-1.5 rounded-md border border-black/10"
-              >
-                + 하위 조직 추가
-              </button>
-              <button
-                onClick={() => setEditingUnit(selectedUnit)}
-                className="text-sm px-3 py-1.5 rounded-md border border-black/10"
-              >
-                조직 정보 수정
-              </button>
-              <button
-                onClick={() => {
-                  const descendants = countDescendants(selectedUnit.id);
-                  const isRoot = selectedUnit.parentId === null;
-                  const warning = isRoot
-                    ? `\n\n※ "${selectedUnit.name}"은(는) 최상위 조직입니다. 삭제하면 이 법인의 조직도 전체(${descendants}개 하위 조직)가 사라집니다.`
-                    : descendants > 0
-                    ? `\n\n하위 조직 ${descendants}개도 함께 삭제됩니다.`
-                    : "";
-                  if (confirm(`"${selectedUnit.name}"을(를) 삭제할까요?${warning}\n\n(실행 취소로 되돌릴 수 있습니다)`)) {
-                    removeOrgUnit(selectedUnit.id);
-                    setSelectedUnitId(null);
-                  }
-                }}
-                className="text-sm px-3 py-1.5 rounded-md border border-red-200 text-red-500"
-              >
-                조직 삭제
-              </button>
-              <button
-                onClick={() => setEditingEmp(emptyEmployee(selectedUnit.id))}
-                className="text-sm px-3 py-1.5 rounded-md bg-[#1E4E8C] text-white"
-              >
-                + 인원 추가
-              </button>
-            </div>
+            {canEdit && (
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setEditingUnit(emptyUnit(entityId, selectedUnit.id))}
+                  className="text-sm px-3 py-1.5 rounded-md border border-black/10"
+                >
+                  + 하위 조직 추가
+                </button>
+                <button
+                  onClick={() => setEditingUnit(selectedUnit)}
+                  className="text-sm px-3 py-1.5 rounded-md border border-black/10"
+                >
+                  조직 정보 수정
+                </button>
+                <button
+                  onClick={() => {
+                    const descendants = countDescendants(selectedUnit.id);
+                    const isRoot = selectedUnit.parentId === null;
+                    const warning = isRoot
+                      ? `\n\n※ "${selectedUnit.name}"은(는) 최상위 조직입니다. 삭제하면 이 법인의 조직도 전체(${descendants}개 하위 조직)가 사라집니다.`
+                      : descendants > 0
+                      ? `\n\n하위 조직 ${descendants}개도 함께 삭제됩니다.`
+                      : "";
+                    if (confirm(`"${selectedUnit.name}"을(를) 삭제할까요?${warning}\n\n(실행 취소로 되돌릴 수 있습니다)`)) {
+                      removeOrgUnit(selectedUnit.id);
+                      setSelectedUnitId(null);
+                    }
+                  }}
+                  className="text-sm px-3 py-1.5 rounded-md border border-red-200 text-red-500"
+                >
+                  조직 삭제
+                </button>
+                <button
+                  onClick={() => setEditingEmp(emptyEmployee(selectedUnit.id))}
+                  className="text-sm px-3 py-1.5 rounded-md bg-[#1E4E8C] text-white"
+                >
+                  + 인원 추가
+                </button>
+              </div>
+            )}
           </div>
 
           <div className="grid grid-cols-4 gap-3">
@@ -395,14 +410,16 @@ function OrgChartInner() {
                 <div className="font-medium text-sm">{emp.name || "(이름 없음)"}</div>
                 <div className="text-xs text-[#0B1F3A]/60 mt-1">{titleFor(emp.glg)}</div>
                 <div className="text-xs text-[#0B1F3A]/40">Lv. {computeTenureYears(emp.joinYear)}년차 · GLG{emp.glg}</div>
-                <div className="absolute top-2 right-2 hidden group-hover:flex gap-2 text-xs">
-                  <button onClick={() => setEditingEmp(emp)} className="text-[#1E4E8C]">
-                    수정
-                  </button>
-                  <button onClick={() => removeEmployee(emp.id)} className="text-red-500">
-                    삭제
-                  </button>
-                </div>
+                {canEdit && (
+                  <div className="absolute top-2 right-2 hidden group-hover:flex gap-2 text-xs">
+                    <button onClick={() => setEditingEmp(emp)} className="text-[#1E4E8C]">
+                      수정
+                    </button>
+                    <button onClick={() => removeEmployee(emp.id)} className="text-red-500">
+                      삭제
+                    </button>
+                  </div>
+                )}
               </div>
             ))}
             {selectedEmployees.length === 0 && (

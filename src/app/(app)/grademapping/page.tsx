@@ -4,7 +4,7 @@ import { useStore } from "@/lib/store";
 import { GLG_LEVELS, STREAM_COLOR } from "@/lib/types";
 
 export default function GradeMappingPage() {
-  const { entities, titleMappings, setTitle } = useStore();
+  const { entities, titleMappings, setTitle, canEdit } = useStore();
 
   const getTitle = (entityId: string, glg: number) =>
     titleMappings.find((m) => m.entityId === entityId && m.glg === glg)?.title ?? "";
@@ -58,9 +58,10 @@ export default function GradeMappingPage() {
                       ) : (
                         <input
                           value={getTitle(e.id, glg)}
-                          onChange={(ev) => setTitle(e.id, glg, ev.target.value)}
+                          onChange={(ev) => canEdit && setTitle(e.id, glg, ev.target.value)}
+                          readOnly={!canEdit}
                           placeholder="미확정"
-                          className="w-full border border-transparent hover:border-black/10 focus:border-[#1E4E8C] rounded-md px-2 py-1.5 text-sm outline-none bg-transparent focus:bg-white placeholder:text-[#0B1F3A]/25"
+                          className="w-full border border-transparent hover:border-black/10 focus:border-[#1E4E8C] rounded-md px-2 py-1.5 text-sm outline-none bg-transparent focus:bg-white placeholder:text-[#0B1F3A]/25 read-only:cursor-default"
                         />
                       )}
                     </td>

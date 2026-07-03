@@ -1,8 +1,10 @@
 "use client";
 
-import React, { createContext, useContext, useEffect, useState } from "react";
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { Entity, TitleMapping, OrgUnit, Employee } from "./types";
 import { sampleEntities, sampleTitleMappings, sampleOrgUnits, sampleEmployees } from "./sampleData";
+import { createClient } from "@/lib/supabase/client";
+import type { AppUser } from "./auth";
 
 interface StoreState {
   entities: Entity[];
@@ -19,6 +21,9 @@ export interface Checkpoint {
 }
 
 interface StoreApi extends StoreState {
+  loading: boolean;
+  canEdit: boolean;
+
   addEntity: (e: Entity) => void;
   updateEntity: (e: Entity) => void;
   removeEntity: (id: string) => void;
@@ -45,8 +50,7 @@ interface StoreApi extends StoreState {
   deleteCheckpoint: (id: string) => void;
 }
 
-const STORAGE_KEY = "glg-dashboard-state-v1";
-const CHECKPOINTS_KEY = "glg-dashboard-checkpoints-v1";
+const ROW_ID = "main";
 const MAX_HISTORY = 30;
 
 const StoreContext = createContext<StoreApi | null>(null);
@@ -58,27 +62,7 @@ const sampleState: StoreState = {
   employees: sampleEmployees,
 };
 
-function loadInitial(): StoreState {
-  if (typeof window === "undefined") return sampleState;
-  try {
-    const raw = window.localStorage.getItem(STORAGE_KEY);
-    if (raw) return JSON.parse(raw);
-  } catch {
-    // ignore parse errors, fall back to sample data
-  }
-  return sampleState;
-}
-
-function loadCheckpoints(): Checkpoint[] {
-  if (typeof window === "undefined") return [];
-  try {
-    const raw = window.localStorage.getItem(CHECKPOINTS_KEY);
-    if (raw) return JSON.parse(raw);
-  } catch {
-    // ignore parse errors
-  }
-  return [];
-}
+const emptyState: StoreState = { entities: [], titleMappings: [], orgUnits: [], employees: [] };
 
 // id와 그 하위 모든 조직(자식, 손자, ...)의 id를 재귀적으로 모두 수집
 function collectSubtreeIds(units: OrgUnit[], rootId: string): Set<string> {
@@ -96,27 +80,76 @@ function collectSubtreeIds(units: OrgUnit[], rootId: string): Set<string> {
   return ids;
 }
 
-export function StoreProvider({ children }: { children: React.ReactNode }) {
-  const [state, setState] = useState<StoreState>(() => loadInitial());
+export function StoreProvider({ user, children }: { user: AppUser; children: React.ReactNode }) {
+  const supabase = useMemo(() => createClient(), []);
+  const editable = user.role === "editor" || user.role === "admin";
+
+  const [state, setState] = useState<StoreState>(emptyState);
+  const [loading, setLoading] = useState(true);
   const [history, setHistory] = useState<StoreState[]>([]);
-  const [checkpoints, setCheckpoints] = useState<Checkpoint[]>(() => loadCheckpoints());
+  const [checkpoints, setCheckpoints] = useState<Checkpoint[]>([]);
 
   useEffect(() => {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-  }, [state]);
+    let cancelled = false;
+    (async () => {
+      const { data: row } = await supabase
+        .from("org_state")
+        .select("data")
+        .eq("id", ROW_ID)
+        .maybeSingle();
 
-  useEffect(() => {
-    window.localStorage.setItem(CHECKPOINTS_KEY, JSON.stringify(checkpoints));
-  }, [checkpoints]);
+      if (cancelled) return;
 
-  // 변경 직전 상태를 undo 스택에 남기고 state를 갱신
+      if (row?.data) {
+        setState(row.data as StoreState);
+      } else {
+        // 최초 실행: 샘플 데이터로 시드
+        await supabase
+          .from("org_state")
+          .upsert({ id: ROW_ID, data: sampleState, updated_by: user.email });
+        setState(sampleState);
+      }
+
+      const { data: chkRows } = await supabase
+        .from("org_checkpoints")
+        .select("id, label, saved_at, data")
+        .order("saved_at", { ascending: true });
+
+      if (!cancelled) {
+        setCheckpoints(
+          (chkRows ?? []).map((c) => ({ id: c.id, label: c.label, savedAt: c.saved_at, state: c.data as StoreState }))
+        );
+        setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [supabase, user.email]);
+
+  const persist = useCallback(
+    (next: StoreState) => {
+      supabase
+        .from("org_state")
+        .upsert({ id: ROW_ID, data: next, updated_at: new Date().toISOString(), updated_by: user.email })
+        .then();
+    },
+    [supabase, user.email]
+  );
+
+  // 변경 직전 상태를 undo 스택에 남기고 state를 갱신 + 서버에 저장
   const mutate = (updater: (s: StoreState) => StoreState) => {
+    if (!editable) return;
+    const next = updater(state);
     setHistory((h) => [...h.slice(-(MAX_HISTORY - 1)), state]);
-    setState(updater);
+    setState(next);
+    persist(next);
   };
 
   const api: StoreApi = {
     ...state,
+    loading,
+    canEdit: editable,
 
     addEntity: (e) => mutate((s) => ({ ...s, entities: [...s.entities, e] })),
     updateEntity: (e) =>
@@ -162,27 +195,46 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
     resetToSample: () => mutate(() => sampleState),
 
-    canUndo: history.length > 0,
+    canUndo: editable && history.length > 0,
     undo: () => {
-      if (history.length === 0) return;
+      if (!editable || history.length === 0) return;
       const prev = history[history.length - 1];
       setHistory((h) => h.slice(0, -1));
       setState(prev);
+      persist(prev);
     },
 
     checkpoints,
-    saveCheckpoint: (label) =>
-      setCheckpoints((cs) => [
-        ...cs,
-        { id: `chk-${Date.now()}`, label: label || "이름 없는 저장", savedAt: new Date().toISOString(), state },
-      ]),
+    saveCheckpoint: (label) => {
+      if (!editable) return;
+      const id = `chk-${Date.now()}`;
+      const savedAt = new Date().toISOString();
+      const chk: Checkpoint = { id, label: label || "이름 없는 저장", savedAt, state };
+      setCheckpoints((cs) => [...cs, chk]);
+      supabase
+        .from("org_checkpoints")
+        .insert({ id, label: chk.label, saved_at: savedAt, saved_by: user.email, data: state })
+        .then();
+    },
     restoreCheckpoint: (id) => {
       const chk = checkpoints.find((c) => c.id === id);
       if (!chk) return;
       mutate(() => chk.state);
     },
-    deleteCheckpoint: (id) => setCheckpoints((cs) => cs.filter((c) => c.id !== id)),
+    deleteCheckpoint: (id) => {
+      if (!editable) return;
+      setCheckpoints((cs) => cs.filter((c) => c.id !== id));
+      supabase.from("org_checkpoints").delete().eq("id", id).then();
+    },
   };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center text-[#0B1F3A]/40">
+        불러오는 중...
+      </div>
+    );
+  }
 
   return <StoreContext.Provider value={api}>{children}</StoreContext.Provider>;
 }
