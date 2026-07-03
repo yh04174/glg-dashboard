@@ -24,9 +24,28 @@ const LEVEL_STYLES = [
 const levelStyle = (depth: number) => LEVEL_STYLES[Math.min(depth, LEVEL_STYLES.length - 1)];
 
 function OrgChartInner() {
-  const { entities, orgUnits, employees, titleMappings, addOrgUnit, updateOrgUnit, removeOrgUnit, addEmployee, updateEmployee, removeEmployee } = useStore();
+  const {
+    entities,
+    orgUnits,
+    employees,
+    titleMappings,
+    addOrgUnit,
+    updateOrgUnit,
+    removeOrgUnit,
+    countDescendants,
+    addEmployee,
+    updateEmployee,
+    removeEmployee,
+    canUndo,
+    undo,
+    checkpoints,
+    saveCheckpoint,
+    restoreCheckpoint,
+    deleteCheckpoint,
+  } = useStore();
   const params = useSearchParams();
   const router = useRouter();
+  const [showVersions, setShowVersions] = useState(false);
 
   const entityId = params.get("entity") ?? entities[0]?.id ?? "";
   const entity = entities.find((e) => e.id === entityId);
@@ -212,23 +231,91 @@ function OrgChartInner() {
         </div>
       </div>
 
-      <div className="flex items-center justify-end gap-1">
-        <button
-          onClick={zoomOut}
-          className="w-7 h-7 rounded border border-black/10 bg-white text-sm hover:bg-black/5"
-          title="축소"
-        >
-          −
-        </button>
-        <span className="text-xs text-[#0B1F3A]/50 w-10 text-center">{Math.round(zoom * 100)}%</span>
-        <button
-          onClick={zoomIn}
-          className="w-7 h-7 rounded border border-black/10 bg-white text-sm hover:bg-black/5"
-          title="확대"
-        >
-          +
-        </button>
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <button
+            onClick={undo}
+            disabled={!canUndo}
+            title="바로 직전 변경을 취소합니다"
+            className="text-sm px-3 py-1.5 rounded-md border border-black/10 disabled:opacity-30 disabled:cursor-not-allowed hover:bg-black/5"
+          >
+            ↩ 실행 취소
+          </button>
+          <button
+            onClick={() => {
+              const label = window.prompt("저장할 버전 이름을 입력하세요", `${entity?.name ?? ""} ${new Date().toLocaleString("ko-KR")}`);
+              if (label !== null) saveCheckpoint(label);
+            }}
+            className="text-sm px-3 py-1.5 rounded-md border border-black/10 hover:bg-black/5"
+          >
+            💾 현재 상태 저장
+          </button>
+          <button
+            onClick={() => setShowVersions((v) => !v)}
+            className="text-sm px-3 py-1.5 rounded-md border border-black/10 hover:bg-black/5"
+          >
+            저장된 버전 ({checkpoints.length}) {showVersions ? "▲" : "▼"}
+          </button>
+        </div>
+
+        <div className="flex items-center gap-1">
+          <button
+            onClick={zoomOut}
+            className="w-7 h-7 rounded border border-black/10 bg-white text-sm hover:bg-black/5"
+            title="축소"
+          >
+            −
+          </button>
+          <span className="text-xs text-[#0B1F3A]/50 w-10 text-center">{Math.round(zoom * 100)}%</span>
+          <button
+            onClick={zoomIn}
+            className="w-7 h-7 rounded border border-black/10 bg-white text-sm hover:bg-black/5"
+            title="확대"
+          >
+            +
+          </button>
+        </div>
       </div>
+
+      {showVersions && (
+        <div className="bg-white rounded-xl border border-black/5 shadow-sm p-4">
+          {checkpoints.length === 0 ? (
+            <div className="text-sm text-[#0B1F3A]/40 py-2">저장된 버전이 없습니다.</div>
+          ) : (
+            <ul className="divide-y divide-black/5">
+              {[...checkpoints].reverse().map((c) => (
+                <li key={c.id} className="flex items-center justify-between py-2 text-sm">
+                  <div>
+                    <div className="font-medium">{c.label}</div>
+                    <div className="text-xs text-[#0B1F3A]/40">
+                      {new Date(c.savedAt).toLocaleString("ko-KR")}
+                    </div>
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => {
+                        if (confirm(`"${c.label}" 시점으로 되돌릴까요? 현재 상태는 실행 취소로 복구할 수 있습니다.`)) {
+                          restoreCheckpoint(c.id);
+                          setSelectedUnitId(null);
+                        }
+                      }}
+                      className="text-[#1E4E8C] px-2 py-1"
+                    >
+                      복원
+                    </button>
+                    <button
+                      onClick={() => deleteCheckpoint(c.id)}
+                      className="text-red-500 px-2 py-1"
+                    >
+                      삭제
+                    </button>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
 
       <div
         ref={panRef}
@@ -273,7 +360,14 @@ function OrgChartInner() {
               </button>
               <button
                 onClick={() => {
-                  if (confirm(`${selectedUnit.name}을(를) 삭제할까요? 하위 조직과 소속 인원도 함께 삭제됩니다.`)) {
+                  const descendants = countDescendants(selectedUnit.id);
+                  const isRoot = selectedUnit.parentId === null;
+                  const warning = isRoot
+                    ? `\n\n※ "${selectedUnit.name}"은(는) 최상위 조직입니다. 삭제하면 이 법인의 조직도 전체(${descendants}개 하위 조직)가 사라집니다.`
+                    : descendants > 0
+                    ? `\n\n하위 조직 ${descendants}개도 함께 삭제됩니다.`
+                    : "";
+                  if (confirm(`"${selectedUnit.name}"을(를) 삭제할까요?${warning}\n\n(실행 취소로 되돌릴 수 있습니다)`)) {
                     removeOrgUnit(selectedUnit.id);
                     setSelectedUnitId(null);
                   }
